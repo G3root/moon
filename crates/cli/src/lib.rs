@@ -96,6 +96,7 @@ pub async fn run_cli() {
             dependents,
             status,
             passthrough,
+            profile,
             upstream,
         } => {
             run(
@@ -105,6 +106,7 @@ pub async fn run_cli() {
                     dependents: *dependents,
                     status: status.clone(),
                     passthrough: passthrough.clone(),
+                    profile: profile.clone(),
                     upstream: *upstream,
                 },
             )

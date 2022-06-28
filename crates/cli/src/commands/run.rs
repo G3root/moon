@@ -27,11 +27,18 @@ impl Default for RunStatus {
     }
 }
 
+#[derive(ArgEnum, Clone, Debug, Display)]
+pub enum RunProfile {
+    Cpu,
+    Heap,
+}
+
 pub struct RunOptions {
     pub affected: bool,
     pub dependents: bool,
     pub status: RunStatus,
     pub passthrough: Vec<String>,
+    pub profile: Option<RunProfile>,
     pub upstream: bool,
 }
 
