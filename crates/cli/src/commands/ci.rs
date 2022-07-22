@@ -1,14 +1,15 @@
 use crate::commands::run::render_result_stats;
+use crate::enums::TouchedStatus;
+use crate::queries::touched_files::{query_touched_files, QueryTouchedFilesOptions};
 use console::Term;
 use itertools::Itertools;
+use moon_action::{ActionContext, ActionStatus};
+use moon_action_runner::{ActionRunner, DepGraph, DepGraphError};
 use moon_logger::{color, debug};
 use moon_project::{Target, TouchedFilePaths};
 use moon_terminal::helpers::{replace_style_tokens, safe_exit};
-use moon_utils::{is_ci, path, time};
-use moon_workspace::DepGraph;
-use moon_workspace::{ActionRunner, ActionStatus, Workspace, WorkspaceError};
-use std::collections::HashSet;
-use std::path::PathBuf;
+use moon_utils::{is_ci, time};
+use moon_workspace::{Workspace, WorkspaceError};
 
 type TargetList = Vec<Target>;
 
@@ -40,42 +41,18 @@ async fn gather_touched_files(
 ) -> Result<TouchedFilePaths, WorkspaceError> {
     print_header("Gathering touched files");
 
-    let vcs = &workspace.vcs;
-    let default_branch = vcs.get_default_branch();
-    let current_branch = vcs.get_local_branch().await?;
-
-    // On default branch, so compare against self -1 revision
-    let touched_files_map = if vcs.is_default_branch(&current_branch) {
-        vcs.get_touched_files_against_previous_revision(default_branch)
-            .await?
-
-        // On a branch, so compare branch against base/default branch
-    } else {
-        let base = options
-            .base
-            .clone()
-            .unwrap_or_else(|| default_branch.to_owned());
-        let head = options.head.clone().unwrap_or_else(|| String::from("HEAD"));
-
-        vcs.get_touched_files_between_revisions(&base, &head)
-            .await?
-    };
-
-    let mut touched_files_to_print = vec![];
-    let touched_files: HashSet<PathBuf> = touched_files_map
-        .all
-        .iter()
-        .map(|f| {
-            touched_files_to_print.push(format!("  {}", color::file(f)));
-            workspace.root.join(path::normalize_separators(f))
-        })
-        .collect();
-
-    touched_files_to_print.sort();
-
-    println!("{}", touched_files_to_print.join("\n"));
-
-    Ok(touched_files)
+    query_touched_files(
+        workspace,
+        &mut QueryTouchedFilesOptions {
+            default_branch: true,
+            base: options.base.clone().unwrap_or_default(),
+            head: options.head.clone().unwrap_or_default(),
+            local: false,
+            log: true,
+            status: TouchedStatus::All,
+        },
+    )
+    .await
 }
 
 /// Gather runnable targets by checking if all projects/tasks are affected based on touched files.
@@ -86,14 +63,9 @@ fn gather_runnable_targets(
     print_header("Gathering runnable targets");
 
     let mut targets = vec![];
-    let globally_affected = workspace.projects.is_globally_affected(touched_files);
 
-    if globally_affected {
-        debug!(
-            target: TARGET,
-            "Moon files touched, marking all targets as affected",
-        );
-    }
+    // Required for dependents
+    workspace.projects.load_all()?;
 
     for project_id in workspace.projects.ids() {
         let project = workspace.projects.load(&project_id)?;
@@ -102,7 +74,7 @@ fn gather_runnable_targets(
             let target = Target::new(&project_id, task_id)?;
 
             if task.should_run_in_ci() {
-                if globally_affected || task.is_affected(touched_files)? {
+                if task.is_affected(touched_files)? {
                     targets.push(target);
                 }
             } else {
@@ -162,7 +134,7 @@ fn distribute_targets_across_jobs(options: &CiOptions, targets: TargetList) -> T
 fn generate_dep_graph(
     workspace: &Workspace,
     targets: &TargetList,
-) -> Result<DepGraph, WorkspaceError> {
+) -> Result<DepGraph, DepGraphError> {
     print_header("Generating dependency graph");
 
     let mut dep_graph = DepGraph::default();
@@ -204,7 +176,15 @@ pub async fn ci(options: CiOptions) -> Result<(), Box<dyn std::error::Error>> {
     print_header("Running all targets");
 
     let mut runner = ActionRunner::new(workspace);
-    let results = runner.run(dep_graph).await?;
+    let results = runner
+        .run(
+            dep_graph,
+            ActionContext {
+                touched_files,
+                ..ActionContext::default()
+            },
+        )
+        .await?;
 
     // Print out the results and exit if an error occurs
     let mut error_count = 0;

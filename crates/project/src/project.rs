@@ -4,8 +4,6 @@ use crate::target::Target;
 use crate::task::Task;
 use crate::token::{TokenResolver, TokenSharedData};
 use moon_config::constants::CONFIG_PROJECT_FILENAME;
-use moon_config::package::PackageJson;
-use moon_config::tsconfig::TsConfigJson;
 use moon_config::{
     format_figment_errors, FilePath, GlobalProjectConfig, ProjectConfig, ProjectID, TaskID,
 };
@@ -14,7 +12,6 @@ use moon_utils::path;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use tokio::sync::OnceCell;
 
 pub type FileGroupsMap = HashMap<String, FileGroup>;
 
@@ -27,7 +24,7 @@ fn load_project_config(
     log_target: &str,
     project_root: &Path,
     project_source: &str,
-) -> Result<Option<ProjectConfig>, ProjectError> {
+) -> Result<ProjectConfig, ProjectError> {
     let config_path = project_root.join(CONFIG_PROJECT_FILENAME);
 
     trace!(
@@ -38,21 +35,17 @@ fn load_project_config(
     );
 
     if config_path.exists() {
-        return match ProjectConfig::load(&config_path) {
-            Ok(cfg) => Ok(Some(cfg)),
-            Err(errors) => Err(ProjectError::InvalidConfigFile(
-                String::from(project_source),
-                format_figment_errors(errors),
-            )),
-        };
+        return ProjectConfig::load(config_path).map_err(|e| {
+            ProjectError::InvalidConfigFile(String::from(project_source), format_figment_errors(e))
+        });
     }
 
-    Ok(None)
+    Ok(ProjectConfig::new(project_root))
 }
 
 fn create_file_groups_from_config(
     log_target: &str,
-    config: &Option<ProjectConfig>,
+    config: &ProjectConfig,
     global_config: &GlobalProjectConfig,
 ) -> FileGroupsMap {
     let mut file_groups = HashMap::<String, FileGroup>::new();
@@ -68,24 +61,22 @@ fn create_file_groups_from_config(
     }
 
     // Override global configs with local
-    if let Some(local_config) = config {
-        for (group_id, files) in &local_config.file_groups {
-            if file_groups.contains_key(group_id) {
-                debug!(
-                    target: log_target,
-                    "Merging file group {} with global config",
-                    color::id(group_id)
-                );
+    for (group_id, files) in &config.file_groups {
+        if file_groups.contains_key(group_id) {
+            debug!(
+                target: log_target,
+                "Merging file group {} with global config",
+                color::id(group_id)
+            );
 
-                // Group already exists, so merge with it
-                file_groups
-                    .get_mut(group_id)
-                    .unwrap()
-                    .merge(files.to_owned());
-            } else {
-                // Insert a group
-                file_groups.insert(group_id.clone(), FileGroup::new(group_id, files.to_owned()));
-            }
+            // Group already exists, so merge with it
+            file_groups
+                .get_mut(group_id)
+                .unwrap()
+                .merge(files.to_owned());
+        } else {
+            // Insert a group
+            file_groups.insert(group_id.clone(), FileGroup::new(group_id, files.to_owned()));
         }
     }
 
@@ -94,12 +85,11 @@ fn create_file_groups_from_config(
 
 fn create_tasks_from_config(
     log_target: &str,
-    config: &Option<ProjectConfig>,
-    global_config: &GlobalProjectConfig,
-    workspace_root: &Path,
-    project_root: &Path,
     project_id: &str,
-    file_groups: &FileGroupsMap,
+    project_config: &ProjectConfig,
+    global_config: &GlobalProjectConfig,
+    token_data: &TokenSharedData,
+    implicit_inputs: &[String],
 ) -> Result<TasksMap, ProjectError> {
     let mut tasks = HashMap::<String, Task>::new();
     let mut depends_on = vec![];
@@ -112,18 +102,19 @@ fn create_tasks_from_config(
     let mut exclude: HashSet<TaskID> = HashSet::new();
     let mut rename: HashMap<TaskID, TaskID> = HashMap::new();
 
-    if let Some(local_config) = config {
-        depends_on.extend(local_config.depends_on.clone());
-        rename = local_config.workspace.inherited_tasks.rename.clone();
+    depends_on.extend(project_config.depends_on.clone());
 
-        if let Some(include_config) = &local_config.workspace.inherited_tasks.include {
-            include_all = false;
-            include.extend(include_config.clone());
-        }
+    if let Some(rename_config) = &project_config.workspace.inherited_tasks.rename {
+        rename.extend(rename_config.clone());
+    }
 
-        if let Some(exclude_config) = &local_config.workspace.inherited_tasks.exclude {
-            exclude.extend(exclude_config.clone());
-        }
+    if let Some(include_config) = &project_config.workspace.inherited_tasks.include {
+        include_all = false;
+        include.extend(include_config.clone());
+    }
+
+    if let Some(exclude_config) = &project_config.workspace.inherited_tasks.exclude {
+        exclude.extend(exclude_config.clone());
     }
 
     // Add global tasks first while taking inheritance config into account
@@ -184,52 +175,47 @@ fn create_tasks_from_config(
     }
 
     // Add local tasks second
-    if let Some(local_config) = config {
-        for (task_id, task_config) in &local_config.tasks {
-            if tasks.contains_key(task_id) {
-                debug!(
-                    target: log_target,
-                    "Merging task {} with global config",
-                    color::id(task_id)
-                );
+    for (task_id, task_config) in &project_config.tasks {
+        if tasks.contains_key(task_id) {
+            debug!(
+                target: log_target,
+                "Merging task {} with global config",
+                color::id(task_id)
+            );
 
-                // Task already exists, so merge with it
-                tasks.get_mut(task_id).unwrap().merge(task_config);
-            } else {
-                // Insert a new task
-                tasks.insert(
-                    task_id.clone(),
-                    Task::from_config(Target::format(project_id, task_id)?, task_config),
-                );
-            }
+            // Task already exists, so merge with it
+            tasks.get_mut(task_id).unwrap().merge(task_config);
+        } else {
+            // Insert a new task
+            tasks.insert(
+                task_id.clone(),
+                Task::from_config(Target::format(project_id, task_id)?, task_config),
+            );
         }
     }
 
     // Expand deps, args, inputs, and outputs after all tasks have been created
     for task in tasks.values_mut() {
-        let data = TokenSharedData::new(file_groups, workspace_root, project_root);
+        // Inherit implicit inputs before resolving
+        task.inputs.extend(implicit_inputs.iter().cloned());
 
-        debug!(
-            target: &task.log_target,
-            "Expanding deps, inputs, outputs, and args",
-        );
-
+        // Resolve in order!
         task.expand_deps(project_id, &depends_on)?;
-        task.expand_inputs(TokenResolver::for_inputs(&data))?;
-        task.expand_outputs(TokenResolver::for_outputs(&data))?;
+        task.expand_inputs(TokenResolver::for_inputs(token_data))?;
+        task.expand_outputs(TokenResolver::for_outputs(token_data))?;
 
         // Must be last as it references inputs/outputs
-        task.expand_args(TokenResolver::for_args(&data))?;
+        task.expand_args(TokenResolver::for_args(token_data))?;
     }
 
     Ok(tasks)
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     /// Project configuration loaded from "project.yml", if it exists.
-    pub config: Option<ProjectConfig>,
+    pub config: ProjectConfig,
 
     /// File groups specific to the project. Inherits all file groups from the global config.
     pub file_groups: FileGroupsMap,
@@ -241,10 +227,6 @@ pub struct Project {
     #[serde(skip)]
     pub log_target: String,
 
-    // The `package.json` in the project root.
-    #[serde(skip)]
-    pub package_json: OnceCell<PackageJson>,
-
     /// Absolute path to the project's root folder.
     pub root: PathBuf,
 
@@ -253,26 +235,6 @@ pub struct Project {
 
     /// Tasks specific to the project. Inherits all tasks from the global config.
     pub tasks: TasksMap,
-
-    // The `tsconfig.json` in the project root.
-    #[serde(skip)]
-    pub tsconfig_json: OnceCell<TsConfigJson>,
-}
-
-impl Default for Project {
-    fn default() -> Self {
-        Project {
-            config: None,
-            file_groups: HashMap::new(),
-            id: String::new(),
-            log_target: String::new(),
-            package_json: OnceCell::new(),
-            root: PathBuf::new(),
-            source: String::new(),
-            tasks: HashMap::new(),
-            tsconfig_json: OnceCell::new(),
-        }
-    }
 }
 
 impl PartialEq for Project {
@@ -298,8 +260,9 @@ impl Project {
         source: &str,
         workspace_root: &Path,
         global_config: &GlobalProjectConfig,
+        implicit_inputs: &[String],
     ) -> Result<Project, ProjectError> {
-        let root = workspace_root.join(&path::normalize_separators(source));
+        let root = workspace_root.join(path::normalize_separators(source));
         let log_target = format!("moon:project:{}", id);
 
         debug!(
@@ -316,14 +279,14 @@ impl Project {
 
         let config = load_project_config(&log_target, &root, source)?;
         let file_groups = create_file_groups_from_config(&log_target, &config, global_config);
+        let token_data = TokenSharedData::new(&file_groups, workspace_root, &root, &config);
         let tasks = create_tasks_from_config(
             &log_target,
+            id,
             &config,
             global_config,
-            workspace_root,
-            &root,
-            id,
-            &file_groups,
+            &token_data,
+            implicit_inputs,
         )?;
 
         Ok(Project {
@@ -331,38 +294,18 @@ impl Project {
             file_groups,
             id: String::from(id),
             log_target,
-            package_json: OnceCell::new(),
             root,
             source: String::from(source),
             tasks,
-            tsconfig_json: OnceCell::new(),
         })
     }
 
     /// Return a list of project IDs this project depends on.
     pub fn get_dependencies(&self) -> Vec<ProjectID> {
         let mut depends_on = vec![];
-
-        if let Some(config) = &self.config {
-            depends_on.extend_from_slice(&config.depends_on);
-        }
-
+        depends_on.extend_from_slice(&self.config.depends_on);
         depends_on.sort();
-
         depends_on
-    }
-
-    /// Return the "package.json" name, if the file exists.
-    pub async fn get_package_name(&self) -> Result<Option<String>, ProjectError> {
-        self.load_package_json().await?;
-
-        if let Some(json) = self.package_json.get() {
-            if let Some(name) = &json.name {
-                return Ok(Some(name.clone()));
-            }
-        }
-
-        Ok(None)
     }
 
     /// Return a task with the defined ID.
@@ -374,74 +317,5 @@ impl Project {
                 self.id.to_owned(),
             )),
         }
-    }
-
-    /// Load and parse the package's `package.json` if it exists.
-    #[track_caller]
-    pub async fn load_package_json(&self) -> Result<bool, ProjectError> {
-        if self.package_json.initialized() {
-            return Ok(true);
-        }
-
-        let package_path = self.root.join("package.json");
-
-        if package_path.exists() {
-            trace!(
-                target: self.get_log_target(),
-                "Loading {} in {}",
-                color::file("package.json"),
-                color::path(&self.root),
-            );
-
-            return match PackageJson::load(&package_path).await {
-                Ok(json) => {
-                    self.package_json
-                        .set(json)
-                        .expect("Failed to load package.json");
-
-                    Ok(true)
-                }
-                Err(error) => Err(ProjectError::Moon(error)),
-            };
-        }
-
-        Ok(false)
-    }
-
-    /// Load and parse the package's `tsconfig.json` if it exists.
-    #[track_caller]
-    pub async fn load_tsconfig_json(&self, tsconfig_name: &str) -> Result<bool, ProjectError> {
-        if self.tsconfig_json.initialized() {
-            return Ok(true);
-        }
-
-        let tsconfig_path = self.root.join(tsconfig_name);
-
-        if tsconfig_path.exists() {
-            trace!(
-                target: self.get_log_target(),
-                "Loading {} in {}",
-                color::file(tsconfig_name),
-                color::path(&self.root),
-            );
-
-            return match TsConfigJson::load(&tsconfig_path).await {
-                Ok(json) => {
-                    self.tsconfig_json
-                        .set(json)
-                        .expect("Failed to load tsconfig.json");
-
-                    Ok(true)
-                }
-                Err(error) => Err(ProjectError::Moon(error)),
-            };
-        }
-
-        Ok(false)
-    }
-
-    /// Return the project as a JSON string.
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap()
     }
 }

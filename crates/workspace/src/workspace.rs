@@ -1,8 +1,7 @@
 use crate::errors::WorkspaceError;
 use moon_cache::CacheEngine;
-use moon_config::package::PackageJson;
-use moon_config::tsconfig::TsConfigJson;
 use moon_config::{constants, format_figment_errors, GlobalProjectConfig, WorkspaceConfig};
+use moon_lang_node::{package::PackageJson, tsconfig::TsConfigJson};
 use moon_logger::{color, debug, trace};
 use moon_project::ProjectGraph;
 use moon_toolchain::Toolchain;
@@ -26,7 +25,7 @@ fn find_workspace_root(current_dir: PathBuf) -> Option<PathBuf> {
         .map(|dir| dir.parent().unwrap().to_path_buf())
 }
 
-// project.yml
+// .moon/project.yml
 fn load_global_project_config(root_dir: &Path) -> Result<GlobalProjectConfig, WorkspaceError> {
     let config_path = root_dir
         .join(constants::CONFIG_DIRNAME)
@@ -55,7 +54,7 @@ fn load_global_project_config(root_dir: &Path) -> Result<GlobalProjectConfig, Wo
     }
 }
 
-// workspace.yml
+// .moon/workspace.yml
 fn load_workspace_config(root_dir: &Path) -> Result<WorkspaceConfig, WorkspaceError> {
     let config_path = root_dir
         .join(constants::CONFIG_DIRNAME)
@@ -88,18 +87,11 @@ fn load_workspace_config(root_dir: &Path) -> Result<WorkspaceConfig, WorkspaceEr
 async fn load_package_json(root_dir: &Path) -> Result<PackageJson, WorkspaceError> {
     let package_json_path = root_dir.join("package.json");
 
-    trace!(
-        target: LOG_TARGET,
-        "Loading {} from {}",
-        color::file("package.json"),
-        color::path(root_dir),
-    );
-
     if !package_json_path.exists() {
         return Err(WorkspaceError::MissingPackageJson);
     }
 
-    Ok(PackageJson::load(&package_json_path).await?)
+    Ok(PackageJson::read(package_json_path).await?.unwrap())
 }
 
 // tsconfig.json
@@ -109,18 +101,11 @@ async fn load_tsconfig_json(
 ) -> Result<Option<TsConfigJson>, WorkspaceError> {
     let tsconfig_json_path = root_dir.join(tsconfig_name);
 
-    trace!(
-        target: LOG_TARGET,
-        "Attempting to find {} in {}",
-        color::file(tsconfig_name),
-        color::path(root_dir),
-    );
-
     if !tsconfig_json_path.exists() {
         return Ok(None);
     }
 
-    Ok(Some(TsConfigJson::load(&tsconfig_json_path).await?))
+    Ok(TsConfigJson::read(tsconfig_json_path).await?)
 }
 
 pub struct Workspace {
@@ -179,9 +164,8 @@ impl Workspace {
         // Setup components
         let cache = CacheEngine::create(&root_dir).await?;
         let toolchain = Toolchain::create(&root_dir, &config).await?;
-        let projects =
-            ProjectGraph::create(&root_dir, project_config, &config.projects, &cache).await?;
-        let vcs = VcsLoader::load(&config, &root_dir)?;
+        let projects = ProjectGraph::create(&root_dir, &config, project_config, &cache).await?;
+        let vcs = VcsLoader::load(&root_dir, &config)?;
 
         Ok(Workspace {
             cache,

@@ -20,6 +20,48 @@ functionality.
 
 These functions reference file groups by name, where the name is passed as the argument.
 
+### `@group`
+
+> Usable in `args` and `inputs`.
+
+The `@group(file_group)` token is a standard token that will be replaced with the file group items
+as-is, for both file paths and globs. This token merely exists for reusability purposes.
+
+When used in [`args`](../config/project#args), it will return relative or absolute paths, depending
+on run context, while [`inputs`](../config/project#inputs) will return absolute paths.
+
+```yaml
+fileGroups:
+  storybook:
+    - '.storybook/**/*'
+    - 'src/**/*'
+    - '**/*.stories.*'
+
+# Configured as
+tasks:
+  build:
+    command: 'build-storybook'
+    inputs:
+      - '@group(storybook)'
+  start:
+    command: 'start-storybook'
+    inputs:
+      - '@group(storybook)'
+
+# Resolves to
+tasks:
+  build:
+    command: 'build-storybook'
+    inputs:
+      - '/path/to/project/.storybook/**/*'
+      - '/path/to/project/src/**/*'
+  start:
+    command: 'start-storybook'
+    inputs:
+      - '/path/to/project/.storybook/**/*'
+      - '/path/to/project/src/**/*'
+```
+
 ### `@dirs`
 
 > Usable in `args` and `inputs`.
@@ -253,11 +295,33 @@ tasks:
 
 ## Variables
 
-> Usable in `args` only.
+> Usable in `args` and `inputs` only.
 
 A token variable is a value that starts with `$` and is substituted to a value derived from the
 current workspace, project, and task. And unlike token functions, token variables can be placed
-_within_ content when necessary.
+_within_ content when necessary, and supports multiple variables within the same content.
+
+### `$language`
+
+Programming language the project is written in, as defined in [`project.yml`](../config/project). If
+the project has not defined the [`language`](../config/project#language) setting, or does not have a
+config, this defaults to "unknown".
+
+```yaml
+# Configured as
+tasks:
+  build:
+    command: 'example'
+    args: 'debug $language'
+
+# Resolves to
+tasks:
+  build:
+    command: 'example'
+    args:
+      - 'debug'
+      - 'node'
+```
 
 ### `$project`
 
@@ -278,6 +342,26 @@ tasks:
     args:
       - '--project'
       - 'web'
+```
+
+### `$projectRoot`
+
+Absolute file path to the project root.
+
+```yaml
+# Configured as
+tasks:
+  build:
+    command: 'example'
+    args: '--cwd $projectRoot'
+
+# Resolves to
+tasks:
+  build:
+    command: 'example'
+    args:
+      - '--cwd'
+      - '/path/to/repo/apps/web'
 ```
 
 ### `$projectSource`
@@ -303,24 +387,26 @@ tasks:
       - '../../.cache/apps/web'
 ```
 
-### `$projectRoot`
+### `$projectType`
 
-Absolute file path to the project root.
+The type of project, as defined in [`project.yml`](../config/project). If the project has not
+defined the [`type`](../config/project#type-1) setting, or does not have a config, this defaults to
+"unknown".
 
 ```yaml
 # Configured as
 tasks:
   build:
     command: 'example'
-    args: '--cwd $projectRoot'
+    args: 'debug $projectType'
 
 # Resolves to
 tasks:
   build:
     command: 'example'
     args:
-      - '--cwd'
-      - '/path/to/repo/apps/web'
+      - 'debug'
+      - 'application'
 ```
 
 ### `$target`
@@ -359,6 +445,26 @@ tasks:
     command: 'example'
     args:
       - '--task=build'
+```
+
+### `$taskType`
+
+The type of task that is currently running.
+
+```yaml
+# Configured as
+tasks:
+  build:
+    command: 'example'
+    args: '--type $taskType'
+
+# Resolves to
+tasks:
+  build:
+    command: 'example'
+    args:
+      - '--type'
+      - 'system'
 ```
 
 ### `$workspaceRoot`

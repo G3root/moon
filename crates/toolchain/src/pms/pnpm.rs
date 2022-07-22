@@ -9,7 +9,7 @@ use moon_lang_node::{node, PNPM};
 use moon_logger::{color, debug, Logable};
 use moon_utils::is_ci;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct PnpmTool {
     bin_path: PathBuf,
@@ -26,7 +26,7 @@ impl PnpmTool {
         let install_dir = node.get_install_dir()?.clone();
 
         Ok(PnpmTool {
-            bin_path: install_dir.join(node::get_bin_name_suffix("pnpm", "cmd", false)),
+            bin_path: node::find_package_manager_bin(&install_dir, "pnpm"),
             config: config.to_owned(),
             install_dir,
             log_target: String::from("moon:toolchain:pnpm"),
@@ -97,7 +97,7 @@ impl Installable<NodeTool> for PnpmTool {
             debug!(
                 target: log_target,
                 "Enabling package manager with {}",
-                color::shell(&format!("corepack prepare {} --activate", package))
+                color::shell(format!("corepack prepare {} --activate", package))
             );
 
             node.exec_corepack(["prepare", &package, "--activate"])
@@ -106,7 +106,7 @@ impl Installable<NodeTool> for PnpmTool {
             debug!(
                 target: log_target,
                 "Installing package manager with {}",
-                color::shell(&format!("npm install -g {}", package))
+                color::shell(format!("npm install -g {}", package))
             );
 
             npm.install_global_dep("pnpm", &self.config.version).await?;
@@ -120,10 +120,7 @@ impl Installable<NodeTool> for PnpmTool {
 impl Executable<NodeTool> for PnpmTool {
     async fn find_bin_path(&mut self, node: &NodeTool) -> Result<(), ToolchainError> {
         // If the global has moved, be sure to reference it
-        let bin_path = node
-            .get_npm()
-            .get_global_dir()?
-            .join(node::get_bin_name_suffix("pnpm", "cmd", false));
+        let bin_path = node::find_package_manager_bin(node.get_npm().get_global_dir()?, "pnpm");
 
         if bin_path.exists() {
             self.bin_path = bin_path;
@@ -174,6 +171,25 @@ impl PackageManager<NodeTool> for PnpmTool {
         Ok(())
     }
 
+    async fn find_package_bin(
+        &self,
+        toolchain: &Toolchain,
+        starting_dir: &Path,
+        bin_name: &str,
+    ) -> Result<PathBuf, ToolchainError> {
+        // pnpm binaries are shell scripts that execute node and the binary
+        // under the hood. We must extract the binary path from it!
+        let bin_path = toolchain
+            .get_node()
+            .find_package_bin(starting_dir, bin_name)?;
+
+        Ok(if cfg!(windows) {
+            bin_path // already extracted from *.cmd
+        } else {
+            node::extract_canonical_bin_path_from_bin_file(bin_path)
+        })
+    }
+
     fn get_lock_filename(&self) -> String {
         String::from(PNPM.lock_filenames[0])
     }
@@ -189,8 +205,10 @@ impl PackageManager<NodeTool> for PnpmTool {
 
     async fn install_dependencies(&self, toolchain: &Toolchain) -> Result<(), ToolchainError> {
         let mut args = vec!["install"];
+        let lockfile = toolchain.workspace_root.join(self.get_lock_filename());
 
-        if is_ci() {
+        // Will fail with "Headless installation requires a pnpm-lock.yaml file"
+        if is_ci() && lockfile.exists() {
             args.push("--frozen-lockfile");
         }
 

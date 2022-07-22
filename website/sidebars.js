@@ -16,6 +16,7 @@ const sidebars = {
 			items: [
 				'guides/ci',
 				'guides/open-source',
+				'guides/profile',
 				'guides/sharing-config',
 				{
 					type: 'category',
@@ -86,9 +87,11 @@ const sidebars = {
 				'commands/overview',
 				'commands/bin',
 				'commands/ci',
+				'commands/dep-graph',
 				'commands/init',
 				'commands/project',
 				'commands/project-graph',
+				'commands/query',
 				'commands/run',
 				'commands/setup',
 				'commands/teardown',
@@ -101,6 +104,12 @@ const sidebars = {
 			},
 		},
 		'terminology',
+		'faq',
+		{
+			type: 'link',
+			label: 'Changelog',
+			href: 'https://github.com/moonrepo/moon/releases',
+		},
 	],
 };
 

@@ -14,6 +14,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use strum::Display;
 use task::TaskConfig;
 use validator::{Validate, ValidationError};
 
@@ -56,33 +57,38 @@ fn validate_channel(value: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
-#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Display, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProjectLanguage {
+    #[strum(serialize = "bash")]
+    Bash,
+
+    #[strum(serialize = "javascript")]
     JavaScript,
+
+    #[strum(serialize = "typescript")]
     TypeScript,
+
+    #[default]
+    #[strum(serialize = "unknown")]
     Unknown,
 }
 
-impl Default for ProjectLanguage {
-    fn default() -> Self {
-        ProjectLanguage::TypeScript
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Display, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProjectType {
+    #[strum(serialize = "application")]
     Application,
-    Library,
-    Tool,
-    Unknown,
-}
 
-impl Default for ProjectType {
-    fn default() -> Self {
-        ProjectType::Library
-    }
+    #[strum(serialize = "library")]
+    Library,
+
+    #[strum(serialize = "tool")]
+    Tool,
+
+    #[default]
+    #[strum(serialize = "unknown")]
+    Unknown,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize, Validate)]
@@ -106,7 +112,7 @@ pub struct ProjectWorkspaceInheritedTasksConfig {
 
     pub include: Option<Vec<TaskID>>,
 
-    pub rename: HashMap<TaskID, TaskID>,
+    pub rename: Option<HashMap<TaskID, TaskID>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, JsonSchema, PartialEq, Serialize, Validate)]
@@ -148,20 +154,45 @@ pub struct ProjectConfig {
 }
 
 impl ProjectConfig {
-    pub fn load(path: &Path) -> Result<ProjectConfig, Vec<FigmentError>> {
+    pub fn detect_language<T: AsRef<Path>>(root: T) -> ProjectLanguage {
+        let root = root.as_ref();
+
+        if root.join("tsconfig.json").exists() {
+            ProjectLanguage::TypeScript
+        } else if root.join("package.json").exists() {
+            ProjectLanguage::JavaScript
+        } else {
+            ProjectLanguage::Unknown
+        }
+    }
+
+    #[track_caller]
+    pub fn load<T: AsRef<Path>>(path: T) -> Result<ProjectConfig, Vec<FigmentError>> {
+        let path = path.as_ref();
         let profile_name = "project";
         let figment =
             Figment::from(Serialized::defaults(ProjectConfig::default()).profile(&profile_name))
                 .merge(Yaml::file(path).profile(&profile_name))
                 .select(&profile_name);
 
-        let config: ProjectConfig = figment.extract().map_err(|e| vec![e])?;
+        let mut config: ProjectConfig = figment.extract().map_err(|e| vec![e])?;
 
         if let Err(errors) = config.validate() {
             return Err(map_validation_errors_to_figment_errors(&figment, &errors));
         }
 
+        if matches!(config.language, ProjectLanguage::Unknown) {
+            config.language = ProjectConfig::detect_language(path.parent().unwrap());
+        }
+
         Ok(config)
+    }
+
+    pub fn new<T: AsRef<Path>>(root: T) -> Self {
+        ProjectConfig {
+            language: ProjectConfig::detect_language(root.as_ref()),
+            ..ProjectConfig::default()
+        }
     }
 }
 

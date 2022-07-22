@@ -100,9 +100,7 @@ impl NodeTool {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let corepack_path = self
-            .install_dir
-            .join(node::get_bin_name_suffix("corepack", "cmd", false));
+        let corepack_path = node::find_package_manager_bin(&self.install_dir, "corepack");
 
         Command::new(&corepack_path)
             .args(args)
@@ -115,14 +113,12 @@ impl NodeTool {
 
     pub fn find_package_bin(
         &self,
-        package_name: &str,
         starting_dir: &Path,
+        bin_name: &str,
     ) -> Result<PathBuf, ToolchainError> {
-        match node::find_package_bin(starting_dir, package_name) {
+        match node::find_package_bin(starting_dir, bin_name) {
             Some(path) => Ok(path),
-            None => Err(ToolchainError::MissingNodeModuleBin(
-                package_name.to_owned(),
-            )),
+            None => Err(ToolchainError::MissingNodeModuleBin(bin_name.to_owned())),
         }
     }
 
@@ -194,7 +190,7 @@ impl Downloadable<Toolchain> for NodeTool {
         let log_target = self.get_log_target();
 
         // Download the node.tar.gz archive
-        let download_url = node::get_nodejs_url(version, host, &node::get_download_file(version)?);
+        let download_url = node::get_nodejs_url(version, host, node::get_download_file(version)?);
         let download_path = self.get_download_path()?;
 
         download_file_from_url(&download_url, download_path).await?;

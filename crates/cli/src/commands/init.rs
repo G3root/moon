@@ -1,12 +1,12 @@
-use clap::ArgEnum;
+use clap::ValueEnum;
 use dialoguer::{Confirm, Select};
 use moon_config::constants::{CONFIG_DIRNAME, CONFIG_PROJECT_FILENAME, CONFIG_WORKSPACE_FILENAME};
-use moon_config::package::{PackageJson, Workspaces};
 use moon_config::{
     default_node_version, default_npm_version, default_pnpm_version, default_yarn_version,
     load_global_project_config_template, load_workspace_config_template,
 };
 use moon_lang::{is_using_package_manager, is_using_version_manager};
+use moon_lang_node::package::{PackageJson, PackageWorkspaces};
 use moon_lang_node::{NODENV, NPM, NVMRC, PNPM, YARN};
 use moon_logger::color;
 use moon_project::detect_projects_with_globs;
@@ -20,8 +20,9 @@ use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use tera::{Context, Tera};
 
-#[derive(ArgEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, Default)]
 pub enum PackageManager {
+    #[default]
     Npm,
     Pnpm,
     Yarn,
@@ -37,14 +38,9 @@ impl PackageManager {
     }
 }
 
-impl Default for PackageManager {
-    fn default() -> Self {
-        PackageManager::Npm
-    }
-}
-
-#[derive(ArgEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, Default)]
 pub enum InheritProjectsAs {
+    #[default]
     None,
     GlobsList,
     ProjectsMap,
@@ -57,12 +53,6 @@ impl InheritProjectsAs {
             InheritProjectsAs::GlobsList => 1,
             InheritProjectsAs::ProjectsMap => 2,
         }
-    }
-}
-
-impl Default for InheritProjectsAs {
-    fn default() -> Self {
-        InheritProjectsAs::None
     }
 }
 
@@ -114,7 +104,7 @@ async fn detect_package_manager(
 
     // Extract value from `packageManager` field
     if pkg_path.exists() {
-        if let Ok(pkg) = PackageJson::load(&pkg_path).await {
+        if let Ok(Some(pkg)) = PackageJson::read(pkg_path).await {
             if let Some(pm) = pkg.package_manager {
                 if pm.contains('@') {
                     let mut parts = pm.split('@');
@@ -207,7 +197,7 @@ async fn detect_projects(
     let mut project_globs = vec![];
 
     if pkg_path.exists() {
-        if let Ok(pkg) = PackageJson::load(&pkg_path).await {
+        if let Ok(Some(pkg)) = PackageJson::read(pkg_path).await {
             if let Some(workspaces) = pkg.workspaces {
                 let items = vec![
                     "Don't inherit",
@@ -231,8 +221,8 @@ async fn detect_projects(
                 };
 
                 let globs = match workspaces {
-                    Workspaces::Array(list) => list,
-                    Workspaces::Object(object) => object.packages.unwrap_or_default(),
+                    PackageWorkspaces::Array(list) => list,
+                    PackageWorkspaces::Object(object) => object.packages.unwrap_or_default(),
                 };
 
                 if index == 1 {

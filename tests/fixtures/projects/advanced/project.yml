@@ -1,5 +1,4 @@
 project:
-  type: 'library'
   name: 'Advanced'
   description: 'Advanced example.'
   channel: '#batcave'
@@ -7,3 +6,4 @@ project:
   maintainers: ['Bruce Wayne']
 
 type: 'application'
+language: 'typescript'

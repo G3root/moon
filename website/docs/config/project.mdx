@@ -70,15 +70,19 @@ fileGroups:
 
 The primary programming language the project is written in. Supports the following values:
 
+- `bash` - A [Bash](<https://en.wikipedia.org/wiki/Bash_(Unix_shell)>) based project.
 - `javascript` - A [JavaScript](https://developer.mozilla.org/en-US/docs/Web/JavaScript) based
-  project.
-- `typescript` (default) - A [TypeScript](https://www.typescriptlang.org/) based project.
+  project. Inferred when `package.json` exists.
+- `typescript` - A [TypeScript](https://www.typescriptlang.org/) based project. Inferred if
+  `tsconfig.json` exists.
+- `unknown` (default) - When not configured or inferred.
 
 ```yaml title="project.yml"
 language: 'javascript'
 ```
 
-> This setting will be used in the future for analytics, metrics, and other data driven events.
+> For convenience, when this setting is not defined, moon will attempt to detect the language based
+> on configuration files found in the project root.
 
 ## `project`
 
@@ -177,6 +181,17 @@ tasks:
     args: '-rf dist'
     type: 'system'
 ```
+
+#### Special commands
+
+For interoperability reasons, the following commands have special handling.
+
+- When `type` is "node":
+  - `node`, `npm`, `pnpm`, `yarn` - Uses the binaries from the toolchain.
+- When `type` is "system":
+  - `cmd`, `cmd.exe` - Will execute the arguments with `cmd.exe` (Windows only).
+  - `powershell`, `powershell.exe` - Will execute the arguments with `powershell.exe` (Windows
+    only).
 
 ### `args`
 
@@ -363,7 +378,7 @@ tasks:
 
 Whether to run the task automatically in a CI (continuous integration) environment when affected by
 touched files, typically through the `moon ci` command. Defaults to `true` unless the task name is
-"start" or "serve", and is _always_ true when a task defines [`outputs`](#outputs).
+"dev", "start", or "serve", and is _always_ true when a task defines [`outputs`](#outputs).
 
 ```yaml title="project.yml" {5}
 tasks:
@@ -410,8 +425,9 @@ tasks:
 The type of project. Supports the following values:
 
 - `application` - A backend or frontend application that communicates over HTTP, TCP, RPC, etc.
-- `library` (default) - A self-contained, shareable, and publishable set of code.
+- `library` - A self-contained, shareable, and publishable set of code.
 - `tool` - An internal tool, command line program, one-off script, etc.
+- `unknown` (default) - When not configured.
 
 ```yaml title="project.yml"
 type: 'application'

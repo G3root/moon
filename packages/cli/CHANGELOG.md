@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.7.0
+
+#### 💥 Breaking
+
+- The `language` and `type` settings in `project.yml` now default to "unknown" when the setting is
+  not defined, or the config does not exist. However, the language will also now be inferred
+  (below).
+
+#### 🚀 Updates
+
+- Updated project `language` to be automatically inferred when the value is unknown, based on the
+  existence of config files (`package.json` = javascript, `tsconfig.json` = typescript).
+- Updated the `InstallNodeDeps` action to install dependencies when a `package.json` change is
+  detected.
+- Added a `moon dep-graph` command for displaying the entire dependency graph in DOT format.
+- Added `--language` and `--type` filter options to `moon query projects`.
+- Added `$language`, `$projectType`, and `$taskType` token variables.
+- Added `dev` as a non-CI task identifier (alongside `start` and `serve`).
+- Token variables can now be used within task `inputs`.
+- Multiple token variables can now be used within the same string.
+
+#### 🐞 Fixes
+
+- Fixed an issue where package binaries would not execute on pnpm.
+
+## 0.6.0
+
+#### 🚀 Updates
+
+- Added a new `@group` token that can be used be task `args` and `inputs`.
+- Added a `moon query` command for querying information about moon, the environment, and more.
+  - To start, `moon query touched-files` can be used to query touched files. The same files
+    `moon ci` and `moon run` use.
+  - Also `moon query projects` can be used to query about projects in the project graph.
+- Added `bash` as a supported value for the project `language` setting.
+- Added `typescript.createMissingConfig` and `typescript.rootOptionsConfigFileName` settings to
+  `.moon/workspace.yml`.
+- Updated TypeScript project reference syncing to automatically create missing `tsconfig.json`s.
+- Updated `moon setup` and `moon teardown` to display spinners while running.
+
+#### 🐞 Fixes
+
+- Fixed an issue with a globally installed moon not being executable in PowerShell.
+- Fixed an issue with empty files being passed to `git hash-object`.
+- Fixed an issue where a `git merge-base` could not be resolved when base and head are provided.
+
+#### ⚙️ Internal
+
+- Updated Rust to v1.62.
+- Refactored our action runner to support additional languages in the future.
+- Refactored Windows to execute package binaries with `node.exe` directly, instead of with
+  `cmd.exe` + the `.bin/*.cmd` file.
+
 ## 0.5.0
 
 #### 🚀 Updates

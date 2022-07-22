@@ -9,7 +9,7 @@ use moon_lang_node::{node, YARN};
 use moon_logger::{color, debug, Logable};
 use moon_utils::is_ci;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct YarnTool {
     bin_path: PathBuf,
@@ -26,7 +26,7 @@ impl YarnTool {
         let install_dir = node.get_install_dir()?.clone();
 
         Ok(YarnTool {
-            bin_path: install_dir.join(node::get_bin_name_suffix("yarn", "cmd", false)),
+            bin_path: node::find_package_manager_bin(&install_dir, "yarn"),
             config: config.to_owned(),
             install_dir,
             log_target: String::from("moon:toolchain:yarn"),
@@ -56,7 +56,7 @@ impl Lifecycle<NodeTool> for YarnTool {
         debug!(
             target: self.get_log_target(),
             "Updating package manager version with {}",
-            color::shell(&format!("yarn set version {}", self.config.version))
+            color::shell(format!("yarn set version {}", self.config.version))
         );
 
         self.create_command()
@@ -128,7 +128,7 @@ impl Installable<NodeTool> for YarnTool {
             debug!(
                 target: log_target,
                 "Enabling package manager with {}",
-                color::shell(&format!("corepack prepare {} --activate", package))
+                color::shell(format!("corepack prepare {} --activate", package))
             );
 
             node.exec_corepack(["prepare", &package, "--activate"])
@@ -139,7 +139,7 @@ impl Installable<NodeTool> for YarnTool {
             debug!(
                 target: log_target,
                 "Installing package with {}",
-                color::shell(&format!("npm install -g {}", package))
+                color::shell(format!("npm install -g {}", package))
             );
 
             npm.install_global_dep("yarn", &self.config.version).await?;
@@ -163,10 +163,7 @@ impl Installable<NodeTool> for YarnTool {
 impl Executable<NodeTool> for YarnTool {
     async fn find_bin_path(&mut self, node: &NodeTool) -> Result<(), ToolchainError> {
         // If the global has moved, be sure to reference it
-        let bin_path = node
-            .get_npm()
-            .get_global_dir()?
-            .join(node::get_bin_name_suffix("yarn", "cmd", false));
+        let bin_path = node::find_package_manager_bin(node.get_npm().get_global_dir()?, "yarn");
 
         if bin_path.exists() {
             self.bin_path = bin_path;
@@ -236,6 +233,18 @@ impl PackageManager<NodeTool> for YarnTool {
             .await?;
 
         Ok(())
+    }
+
+    async fn find_package_bin(
+        &self,
+        toolchain: &Toolchain,
+        starting_dir: &Path,
+        bin_name: &str,
+    ) -> Result<PathBuf, ToolchainError> {
+        // Yarn binaries are symlinks to actual JavaScript files
+        toolchain
+            .get_node()
+            .find_package_bin(starting_dir, bin_name)
     }
 
     fn get_lock_filename(&self) -> String {

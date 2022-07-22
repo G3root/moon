@@ -1,4 +1,3 @@
-use moon_config::package::PackageJson;
 use moon_config::{
     GlobalProjectConfig, ProjectConfig, ProjectLanguage, ProjectMetadataConfig, ProjectType,
     TargetID, TaskConfig, TaskMergeStrategy, TaskOptionsConfig, TaskType,
@@ -6,7 +5,7 @@ use moon_config::{
 use moon_project::{EnvVars, FileGroup, Project, ProjectError, Target, Task};
 use moon_utils::string_vec;
 use moon_utils::test::{get_fixtures_dir, get_fixtures_root};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::Path;
 
 fn mock_file_groups() -> HashMap<String, FileGroup> {
@@ -33,6 +32,7 @@ fn doesnt_exist() {
         "projects/missing",
         &get_fixtures_root(),
         &mock_global_project_config(),
+        &[],
     )
     .unwrap();
 }
@@ -45,6 +45,7 @@ fn no_config() {
         "projects/no-config",
         &workspace_root,
         &mock_global_project_config(),
+        &[],
     )
     .unwrap();
 
@@ -69,6 +70,7 @@ fn empty_config() {
         "projects/empty-config",
         &workspace_root,
         &mock_global_project_config(),
+        &[],
     )
     .unwrap();
 
@@ -76,7 +78,7 @@ fn empty_config() {
         project,
         Project {
             id: String::from("empty-config"),
-            config: Some(ProjectConfig::default()),
+            config: ProjectConfig::default(),
             log_target: String::from("moon:project:empty-config"),
             root: workspace_root.join("projects/empty-config"),
             file_groups: mock_file_groups(),
@@ -94,6 +96,7 @@ fn basic_config() {
         "projects/basic",
         &workspace_root,
         &mock_global_project_config(),
+        &[],
     )
     .unwrap();
     let project_root = workspace_root.join("projects/basic");
@@ -109,12 +112,12 @@ fn basic_config() {
         project,
         Project {
             id: String::from("basic"),
-            config: Some(ProjectConfig {
+            config: ProjectConfig {
                 depends_on: string_vec!["noConfig"],
                 file_groups: HashMap::from([(String::from("tests"), string_vec!["**/*_test.rs"])]),
                 language: ProjectLanguage::JavaScript,
                 ..ProjectConfig::default()
-            }),
+            },
             log_target: String::from("moon:project:basic"),
             root: project_root,
             file_groups,
@@ -132,6 +135,7 @@ fn advanced_config() {
         "projects/advanced",
         &workspace_root,
         &mock_global_project_config(),
+        &[],
     )
     .unwrap();
 
@@ -139,7 +143,7 @@ fn advanced_config() {
         project,
         Project {
             id: String::from("advanced"),
-            config: Some(ProjectConfig {
+            config: ProjectConfig {
                 project: Some(ProjectMetadataConfig {
                     name: String::from("Advanced"),
                     description: String::from("Advanced example."),
@@ -148,8 +152,9 @@ fn advanced_config() {
                     channel: String::from("#batcave"),
                 }),
                 type_of: ProjectType::Application,
+                language: ProjectLanguage::TypeScript,
                 ..ProjectConfig::default()
-            }),
+            },
             log_target: String::from("moon:project:advanced"),
             root: workspace_root.join("projects/advanced"),
             file_groups: mock_file_groups(),
@@ -170,6 +175,7 @@ fn overrides_global_file_groups() {
             file_groups: HashMap::from([(String::from("tests"), string_vec!["tests/**/*"])]),
             ..GlobalProjectConfig::default()
         },
+        &[],
     )
     .unwrap();
 
@@ -177,12 +183,12 @@ fn overrides_global_file_groups() {
         project,
         Project {
             id: String::from("basic"),
-            config: Some(ProjectConfig {
+            config: ProjectConfig {
                 depends_on: string_vec!["noConfig"],
                 file_groups: HashMap::from([(String::from("tests"), string_vec!["**/*_test.rs"])]),
                 language: ProjectLanguage::JavaScript,
                 ..ProjectConfig::default()
-            }),
+            },
             log_target: String::from("moon:project:basic"),
             root: workspace_root.join("projects/basic"),
             file_groups: HashMap::from([(
@@ -191,31 +197,6 @@ fn overrides_global_file_groups() {
             )]),
             source: String::from("projects/basic"),
             ..Project::default()
-        }
-    );
-}
-
-#[tokio::test]
-async fn has_package_json() {
-    let workspace_root = get_fixtures_root();
-    let project = Project::new(
-        "package-json",
-        "projects/package-json",
-        &workspace_root,
-        &mock_global_project_config(),
-    )
-    .unwrap();
-
-    project.load_package_json().await.unwrap();
-
-    assert_eq!(
-        *project.package_json.get().unwrap(),
-        PackageJson {
-            path: workspace_root.join("projects/package-json/package.json"),
-            name: Some(String::from("npm-example")),
-            version: Some(String::from("1.2.3")),
-            scripts: Some(BTreeMap::from([("build".to_owned(), "babel".to_owned())])),
-            ..PackageJson::default()
         }
     );
 }
@@ -309,6 +290,7 @@ mod tasks {
                 tasks: HashMap::from([(String::from("standard"), mock_task_config("cmd"))]),
                 ..GlobalProjectConfig::default()
             },
+            &[],
         )
         .unwrap();
 
@@ -325,7 +307,10 @@ mod tasks {
             project,
             Project {
                 id: String::from("id"),
-                config: Some(ProjectConfig::default()),
+                config: ProjectConfig {
+                    language: ProjectLanguage::JavaScript,
+                    ..ProjectConfig::default()
+                },
                 log_target: String::from("moon:project:id"),
                 root: workspace_root
                     .join("tasks/no-tasks")
@@ -349,6 +334,7 @@ mod tasks {
                 tasks: HashMap::from([(String::from("standard"), mock_task_config("cmd"))]),
                 ..GlobalProjectConfig::default()
             },
+            &[],
         )
         .unwrap();
 
@@ -384,14 +370,15 @@ mod tasks {
             project,
             Project {
                 id: String::from("id"),
-                config: Some(ProjectConfig {
+                config: ProjectConfig {
+                    language: ProjectLanguage::JavaScript,
                     tasks: HashMap::from([
                         (String::from("build"), mock_task_config("webpack")),
                         (String::from("test"), mock_task_config("jest")),
                         (String::from("lint"), mock_task_config("eslint"))
                     ]),
                     ..ProjectConfig::default()
-                }),
+                },
                 log_target: String::from("moon:project:id"),
                 root: workspace_root.join("tasks/basic").canonicalize().unwrap(),
                 source: String::from("tasks/basic"),
@@ -404,6 +391,54 @@ mod tasks {
                 ..Project::default()
             }
         );
+    }
+
+    #[test]
+    fn inherits_implicit_inputs() {
+        let workspace_root = get_fixtures_root();
+        let implicit_inputs = string_vec!["package.json", "/.moon/workspace.yml"];
+        let project = Project::new(
+            "id",
+            "tasks/basic",
+            &workspace_root,
+            &GlobalProjectConfig {
+                tasks: HashMap::from([(String::from("standard"), mock_task_config("cmd"))]),
+                ..GlobalProjectConfig::default()
+            },
+            &implicit_inputs,
+        )
+        .unwrap();
+
+        let mut build = Task::from_config(
+            Target::format("id", "build").unwrap(),
+            &mock_task_config("webpack"),
+        );
+
+        let mut std = Task::from_config(
+            Target::format("id", "standard").unwrap(),
+            &mock_task_config("cmd"),
+        );
+
+        let mut test = Task::from_config(
+            Target::format("id", "test").unwrap(),
+            &mock_task_config("jest"),
+        );
+
+        let mut lint = Task::from_config(
+            Target::format("id", "lint").unwrap(),
+            &mock_task_config("eslint"),
+        );
+
+        // Expanded
+        build.inputs.extend(implicit_inputs.clone());
+        std.inputs.extend(implicit_inputs.clone());
+        test.inputs.extend(implicit_inputs.clone());
+        lint.inputs.extend(implicit_inputs);
+
+        assert_eq!(project.get_task("build").unwrap().inputs, build.inputs);
+        assert_eq!(project.get_task("standard").unwrap().inputs, std.inputs);
+        assert_eq!(project.get_task("test").unwrap().inputs, test.inputs);
+        assert_eq!(project.get_task("lint").unwrap().inputs, lint.inputs);
     }
 
     #[test]
@@ -430,6 +465,7 @@ mod tasks {
                 )]),
                 ..GlobalProjectConfig::default()
             },
+            &[],
         )
         .unwrap();
 
@@ -437,7 +473,7 @@ mod tasks {
             project,
             Project {
                 id: String::from("id"),
-                config: Some(ProjectConfig {
+                config: ProjectConfig {
                     tasks: HashMap::from([(
                         String::from("standard"),
                         TaskConfig {
@@ -452,7 +488,7 @@ mod tasks {
                         }
                     )]),
                     ..ProjectConfig::default()
-                }),
+                },
                 log_target: String::from("moon:project:id"),
                 root: workspace_root.join(project_source).canonicalize().unwrap(),
                 source: String::from(project_source),
@@ -504,6 +540,7 @@ mod tasks {
                 )]),
                 ..GlobalProjectConfig::default()
             },
+            &[],
         )
         .unwrap();
 
@@ -511,7 +548,7 @@ mod tasks {
             project,
             Project {
                 id: String::from("id"),
-                config: Some(ProjectConfig {
+                config: ProjectConfig {
                     tasks: HashMap::from([(
                         String::from("standard"),
                         TaskConfig {
@@ -526,7 +563,7 @@ mod tasks {
                         }
                     )]),
                     ..ProjectConfig::default()
-                }),
+                },
                 log_target: String::from("moon:project:id"),
                 root: workspace_root.join(project_source).canonicalize().unwrap(),
                 source: String::from(project_source),
@@ -581,6 +618,7 @@ mod tasks {
                 )]),
                 ..GlobalProjectConfig::default()
             },
+            &[],
         )
         .unwrap();
 
@@ -588,7 +626,7 @@ mod tasks {
             project,
             Project {
                 id: String::from("id"),
-                config: Some(ProjectConfig {
+                config: ProjectConfig {
                     tasks: HashMap::from([(
                         String::from("standard"),
                         TaskConfig {
@@ -603,7 +641,7 @@ mod tasks {
                         }
                     )]),
                     ..ProjectConfig::default()
-                }),
+                },
                 log_target: String::from("moon:project:id"),
                 root: workspace_root.join(project_source).canonicalize().unwrap(),
                 source: String::from(project_source),
@@ -658,6 +696,7 @@ mod tasks {
                 )]),
                 ..GlobalProjectConfig::default()
             },
+            &[],
         )
         .unwrap();
 
@@ -665,7 +704,7 @@ mod tasks {
             project,
             Project {
                 id: String::from("id"),
-                config: Some(ProjectConfig {
+                config: ProjectConfig {
                     tasks: HashMap::from([(
                         String::from("standard"),
                         TaskConfig {
@@ -689,7 +728,7 @@ mod tasks {
                         }
                     )]),
                     ..ProjectConfig::default()
-                }),
+                },
                 log_target: String::from("moon:project:id"),
                 root: workspace_root.join(project_source).canonicalize().unwrap(),
                 source: String::from(project_source),
@@ -737,6 +776,7 @@ mod tasks {
                 "self",
                 &get_fixtures_dir("task-deps"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -753,6 +793,7 @@ mod tasks {
                 "self-dupes",
                 &get_fixtures_dir("task-deps"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -769,6 +810,7 @@ mod tasks {
                 "deps",
                 &get_fixtures_dir("task-deps"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -785,6 +827,7 @@ mod tasks {
                 "deps-dupes",
                 &get_fixtures_dir("task-deps"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -802,6 +845,7 @@ mod tasks {
                 "all",
                 &get_fixtures_dir("task-deps"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
         }
@@ -840,6 +884,7 @@ mod tasks {
                     )]),
                     ..GlobalProjectConfig::default()
                 },
+                &[],
             )
             .unwrap();
 
@@ -912,6 +957,7 @@ mod tasks {
                     )]),
                     ..GlobalProjectConfig::default()
                 },
+                &[],
             )
             .unwrap();
 
@@ -967,6 +1013,7 @@ mod tasks {
                     )]),
                     ..GlobalProjectConfig::default()
                 },
+                &[],
             )
             .unwrap();
 
@@ -1021,6 +1068,7 @@ mod tasks {
                     )]),
                     ..GlobalProjectConfig::default()
                 },
+                &[],
             )
             .unwrap();
 
@@ -1045,6 +1093,55 @@ mod tasks {
                     project_root.join("dir/other.tsx"),
                     project_root.join("dir/subdir/another.ts"),
                     workspace_root.join("package.json"),
+                ]
+                .iter()
+                .map(PathBuf::from),
+            );
+
+            assert_eq!(a, b);
+        }
+
+        #[test]
+        fn expands_implicit_inputs() {
+            let workspace_root = get_fixtures_dir("base");
+            let project_root = workspace_root.join("files-and-dirs");
+            let project = Project::new(
+                "id",
+                "files-and-dirs",
+                &workspace_root,
+                &GlobalProjectConfig {
+                    file_groups: create_file_groups_config(),
+                    tasks: HashMap::from([(
+                        String::from("test"),
+                        TaskConfig {
+                            command: Some(String::from("test")),
+                            inputs: Some(string_vec!["local.ts",]),
+                            type_of: TaskType::Node,
+                            ..TaskConfig::default()
+                        },
+                    )]),
+                    ..GlobalProjectConfig::default()
+                },
+                &[
+                    "/.moon/$taskType-$projectType.yml".to_owned(),
+                    "*.yml".to_owned(),
+                ],
+            )
+            .unwrap();
+
+            let task = project.tasks.get("test").unwrap();
+
+            assert_eq!(
+                task.input_globs,
+                vec![wrap_glob(&project_root.join("*.yml")).to_string_lossy(),]
+            );
+
+            let a: HashSet<PathBuf> =
+                HashSet::from_iter(task.input_paths.iter().map(PathBuf::from));
+            let b: HashSet<PathBuf> = HashSet::from_iter(
+                vec![
+                    project_root.join("local.ts"),
+                    workspace_root.join(".moon/node-unknown.yml"),
                 ]
                 .iter()
                 .map(PathBuf::from),
@@ -1105,6 +1202,7 @@ mod workspace {
                 "include",
                 &get_fixtures_dir("task-inheritance"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -1118,6 +1216,7 @@ mod workspace {
                 "include-none",
                 &get_fixtures_dir("task-inheritance"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -1131,6 +1230,7 @@ mod workspace {
                 "exclude",
                 &get_fixtures_dir("task-inheritance"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -1144,6 +1244,7 @@ mod workspace {
                 "exclude-all",
                 &get_fixtures_dir("task-inheritance"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -1157,6 +1258,7 @@ mod workspace {
                 "exclude-none",
                 &get_fixtures_dir("task-inheritance"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -1170,6 +1272,7 @@ mod workspace {
                 "rename",
                 &get_fixtures_dir("task-inheritance"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -1187,6 +1290,7 @@ mod workspace {
                 "rename-merge",
                 &workspace_root,
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -1210,6 +1314,7 @@ mod workspace {
                 "include-exclude",
                 &get_fixtures_dir("task-inheritance"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
@@ -1223,6 +1328,7 @@ mod workspace {
                 "include-exclude-rename",
                 &get_fixtures_dir("task-inheritance"),
                 &mock_global_project_config(),
+                &[],
             )
             .unwrap();
 
